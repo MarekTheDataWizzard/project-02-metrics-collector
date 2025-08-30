@@ -1,0 +1,18 @@
+version: 1.0
+runtime: python311
+
+build:
+  commands:
+    build:
+      - python3 -m pip install --upgrade pip
+
+run:
+  # lock to the supported major (or pick a specific patch like 3.11.13)
+  runtime-version: 3.11
+  # for python311 use pre-run to install dependencies
+  pre-run:
+    - python3 -m pip install --upgrade pip
+    - pip3 install -r requirements.txt
+  command: uvicorn app.main:app --host 0.0.0.0 --port 8081
+  network:
+    port: 8081
