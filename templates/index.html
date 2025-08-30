@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Metrics Collector</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <style>
+    .spark { width: 120px; height: 30px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .pill { display:inline-block; padding:2px 6px; border-radius:999px; background:#eee; font-size:12px; }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <h1>Metrics Collector</h1>
+    <p>Server time (UTC): <strong id="server_time">loading…</strong></p>
+    <p><a href="/metrics" target="_blank">Prometheus /metrics</a></p>
+    <hr/>
+    <h2>Events (labeled)</h2>
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th>Event</th>
+          <th>Service</th>
+          <th>Status</th>
+          <th>Count</th>
+          <th>Samples</th>
+          <th>Avg</th>
+          <th>Min</th>
+          <th>Max</th>
+          <th>Latency (5 min)</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </main>
+
+  <script>
+    async function fetchJSON(url){ const r = await fetch(url); return r.json(); }
+
+    function sparkline(canvas, points) {
+      const ctx = canvas.getContext('2d');
+      const W = canvas.width, H = canvas.height;
+      ctx.clearRect(0,0,W,H);
+      if (!points || points.length === 0) return;
+      // normalize x by time, y by value
+      const xs = points.map(p => p[0]);
+      const ys = points.map(p => p[1]);
+      const minX = Math.min(...xs), maxX = Math.max(...xs);
+      const minY = Math.min(...ys), maxY = Math.max(...ys);
+      const dx = (maxX - minX) || 1, dy = (maxY - minY) || 1;
+
+      ctx.beginPath();
+      for (let i=0;i<points.length;i++){
+        const x = ((points[i][0]-minX)/dx) * (W-2) + 1;
+        const y = H - (((points[i][1]-minY)/dy) * (H-2) + 1);
+        if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+    }
+
+    async function load() {
+      const [agg, ser] = await Promise.all([
+        fetchJSON('/api/metrics.json'),
+        fetchJSON('/api/series.json')
+      ]);
+
+      document.getElementById('server_time').textContent = agg.server_time;
+
+      const tbody = document.querySelector('#tbl tbody');
+      tbody.innerHTML = '';
+      const rows = (agg.rows || []).slice().sort((a,b) => a.event.localeCompare(b.event));
+
+      for (const row of rows) {
+        const tr = document.createElement('tr');
+        const avg = row.avg == null ? '' : row.avg.toFixed(3);
+        const min = row.min == null ? '' : row.min.toFixed(3);
+        const max = row.max == null ? '' : row.max.toFixed(3);
+
+        const tdSpark = document.createElement('td');
+        const canvas = document.createElement('canvas');
+        canvas.className = 'spark';
+        canvas.width = 120; canvas.height = 30;
+        tdSpark.appendChild(canvas);
+
+        tr.innerHTML = `
+          <td class="mono">${row.event}</td>
+          <td><span class="pill">${row.service || '-'}</span></td>
+          <td><span class="pill">${row.status || '-'}</span></td>
+          <td>${row.count}</td>
+          <td>${row.samples}</td>
+          <td>${avg}</td>
+          <td>${min}</td>
+          <td>${max}</td>
+        `;
+        tr.appendChild(tdSpark);
+        tbody.appendChild(tr);
+
+        // draw sparkline for this label set (if present)
+        const seriesForEvent = (ser.series && ser.series[row.event]) || [];
+        const match = seriesForEvent.find(s => (s.service||'') === (row.service||'') && (s.status||'') === (row.status||''));
+        sparkline(canvas, match ? match.points : []);
+      }
+    }
+
+    load();
+    setInterval(load, 5000);
+  </script>
+</body>
+</html>
